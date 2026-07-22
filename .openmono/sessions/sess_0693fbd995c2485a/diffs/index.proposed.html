@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GALACTIC ASSAULT — Arcade Space Shooter</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="480" height="640"></canvas>
+
+        <!-- Start Screen Overlay -->
+        <div id="start-screen" class="overlay">
+            <h1 class="title">GALACTIC<br>ASSAULT</h1>
+            <p class="subtitle">ARCADE SPACE SHOOTER</p>
+            <div class="controls-info">
+                <p><span class="key">&larr; &rarr;</span> MOVE</p>
+                <p><span class="key">SPACE</span> FIRE</p>
+            </div>
+            <p id="start-prompt" class="prompt">PRESS SPACE TO START</p>
+        </div>
+
+        <!-- Game Over Overlay -->
+        <div id="gameover-screen" class="overlay hidden">
+            <h1 class="title gameover-title">GAME OVER</h1>
+            <p class="final-score">SCORE: <span id="final-score-value">0</span></p>
+            <p class="high-score">HIGH SCORE: <span id="high-score-value">0</span></p>
+            <p id="restart-prompt" class="prompt">PRESS SPACE TO RETRY</p>
+        </div>
+
+        <!-- HUD -->
+        <div id="hud" class="hidden">
+            <div id="score-display">SCORE: <span id="score-value">0</span></div>
+            <div id="wave-display">WAVE: <span id="wave-value">1</span></div>
+            <div id="lives-display"></div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
