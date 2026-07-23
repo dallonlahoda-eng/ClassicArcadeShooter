@@ -212,6 +212,7 @@ function createEnemy(x, y, typeIndex) {
         points: type.points,
         hp: type.hp,
         maxHp: type.hp,
+        name: type.name,
         speed: 40 + wave * 5, // base speed increases with wave
         phase: Math.random() * Math.PI * 2, // random starting phase for sine drift
         shootTimer: 2 + Math.random() * 3, // time until next shot
@@ -232,18 +233,17 @@ function createEnemy(x, y, typeIndex) {
             }
         },
 
-        draw() {
+      draw() {
             ctx.save();
             ctx.translate(this.x, this.y);
 
-            // Glow effect on main body only
-            ctx.shadowColor = this.glowColor;
-            ctx.shadowBlur = 12;
+            // Draw main body — solid fill with outline for visibility
+            ctx.fillStyle = this.color;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
 
             if (this.name === 'grunt') {
-                // Small scout ship — sleek delta wing fighter facing down
-                ctx.fillStyle = this.color;
-                // Main fuselage
+                // Small scout ship — delta wing fighter facing down
                 ctx.beginPath();
                 ctx.moveTo(0, this.height / 2);       // nose (bottom)
                 ctx.lineTo(-this.width / 3, -this.height / 4);
@@ -254,9 +254,9 @@ function createEnemy(x, y, typeIndex) {
                 ctx.lineTo(this.width / 3, -this.height / 4);
                 ctx.closePath();
                 ctx.fill();
+                ctx.stroke();
 
                 // Cockpit window (dark)
-                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#1a1a2e';
                 ctx.beginPath();
                 ctx.moveTo(0, this.height / 3);
@@ -274,8 +274,6 @@ function createEnemy(x, y, typeIndex) {
 
             } else if (this.name === 'elite') {
                 // Medium interceptor — angular twin-fin design facing down
-                ctx.fillStyle = this.color;
-                // Central body
                 ctx.beginPath();
                 ctx.moveTo(0, this.height / 2);       // nose
                 ctx.lineTo(-6, this.height / 4);
@@ -289,9 +287,9 @@ function createEnemy(x, y, typeIndex) {
                 ctx.lineTo(6, this.height / 4);
                 ctx.closePath();
                 ctx.fill();
+                ctx.stroke();
 
                 // Cockpit
-                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#1a1a2e';
                 ctx.beginPath();
                 ctx.moveTo(0, this.height / 3);
@@ -309,8 +307,6 @@ function createEnemy(x, y, typeIndex) {
 
             } else if (this.name === 'boss') {
                 // Heavy dreadnought — wide menacing design facing down
-                ctx.fillStyle = this.color;
-                // Main hull
                 ctx.beginPath();
                 ctx.moveTo(0, this.height / 2);       // nose
                 ctx.lineTo(-10, this.height / 3);
@@ -326,6 +322,7 @@ function createEnemy(x, y, typeIndex) {
                 ctx.lineTo(10, this.height / 3);
                 ctx.closePath();
                 ctx.fill();
+                ctx.stroke();
 
                 // Wing accents (darker)
                 ctx.fillStyle = '#9c27b0';
@@ -343,7 +340,6 @@ function createEnemy(x, y, typeIndex) {
                 ctx.fill();
 
                 // Cockpit cluster (3 windows)
-                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#1a1a2e';
                 ctx.beginPath();
                 ctx.arc(0, this.height / 4, 5, 0, Math.PI * 2);
@@ -366,7 +362,6 @@ function createEnemy(x, y, typeIndex) {
 
             // HP indicator for enemies with >1 max hp
             if (this.maxHp > 1) {
-                ctx.shadowBlur = 0;
                 const barWidth = this.width;
                 const barHeight = 3;
                 const barY = this.height / 2 + 6;
