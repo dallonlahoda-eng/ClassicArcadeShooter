@@ -2,6 +2,8 @@
 
 A classic arcade-style space shooter built entirely with vanilla HTML, CSS, and JavaScript. No frameworks, no dependencies — just a single canvas game that runs in any modern browser.
 
+[Live Site Link](https://classic-arcade-shooter.vercel.app/)
+
 ## Features
 
 - **Wave-based enemy spawning** — face increasingly difficult formations of grunts, elites, and bosses
