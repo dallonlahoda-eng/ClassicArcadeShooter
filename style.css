@@ -31,6 +31,10 @@ canvas {
         0 0 60px rgba(0, 100, 200, 0.08),
         inset 0 0 30px rgba(0, 0, 0, 0.5);
     border-radius: 4px;
+    max-width: 100vw;
+    max-height: 100vh;
+    width: auto;
+    height: auto;
 }
 
 /* === OVERLAYS (Start / Game Over) === */
@@ -45,8 +49,12 @@ canvas {
     justify-content: center;
     align-items: center;
     text-align: center;
-    pointer-events: none;
+    pointer-events: auto;
     z-index: 10;
+}
+
+.overlay.hidden {
+    display: none !important;
 }
 
 .overlay.hidden {
@@ -178,4 +186,55 @@ canvas {
     width: 20px;
     height: 20px;
     filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.6));
+}
+
+/* === MOBILE CONTROLS === */
+.mobile-controls-info {
+    margin-bottom: 30px;
+    line-height: 2.2;
+    text-align: center;
+    color: #00e5ff;
+    font-size: 10px;
+    text-shadow: 0 0 6px rgba(0, 229, 255, 0.6);
+}
+
+/* Responsive canvas for mobile */
+@media (max-width: 500px) {
+    .title {
+        font-size: 24px;
+    }
+    .subtitle {
+        font-size: 8px;
+    }
+    .key {
+        font-size: 8px;
+        padding: 3px 6px;
+    }
+    .controls-info, .mobile-controls-info {
+        font-size: 9px;
+    }
+    .prompt {
+        font-size: 10px;
+    }
+    .final-score, .high-score {
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 380px) {
+    .title {
+        font-size: 20px;
+    }
+    #game-container {
+        padding: 0;
+    }
+}
+
+/* Prevent pull-to-refresh and other mobile gestures */
+body {
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
 }

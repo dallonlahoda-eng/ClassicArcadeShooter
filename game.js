@@ -18,9 +18,10 @@ const highScoreValue = document.getElementById('high-score-value');
 let gameState = 'START'; // START | PLAYING | GAME_OVER
 let score = 0;
 let wave = 1;
-let lives = 3;
+
 let highScore = parseInt(localStorage.getItem('galacticAssault_highScore')) || 0;
 let lastTime = 0;
+let screenFlashTimer = 0;
 
 // === INPUT ===
 const keys = {};
@@ -34,14 +35,159 @@ window.addEventListener('keyup', (e) => {
     keys[e.code] = false;
 });
 
+// === MOBILE / TOUCH INPUT ===
+const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+let touchActive = false;
+let playerTouchOffsetX = 0;
+
+canvas.addEventListener('pointerdown', (e) => {
+    if (gameState !== 'PLAYING') return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const clientX = e.clientX * scaleX;
+
+    touchActive = true;
+    playerTouchOffsetX = player.x - clientX; // offset from ship center for natural drag feel
+    canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener('pointermove', (e) => {
+    if (!touchActive || gameState !== 'PLAYING') return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const clientX = e.clientX * scaleX;
+
+    // Move ship to follow finger, clamped to bounds
+    player.x = Math.max(player.width / 2,
+        Math.min(W - player.width / 2,
+            clientX + playerTouchOffsetX));
+});
+
+canvas.addEventListener('pointerup', (e) => {
+    touchActive = false;
+});
+
+canvas.addEventListener('pointercancel', (e) => {
+    touchActive = false;
+});
+
+// === SOUND MANAGER ===
+const soundManager = (() => {
+    let audioCtx = null;
+
+    function ensureAudioContext() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        return audioCtx;
+    }
+
+    // Pre-generate a single shared white noise buffer (4 seconds, reused for all explosions)
+    let noiseBuffer = null;
+    function getNoiseBuffer(ctx) {
+        if (!noiseBuffer) {
+            const sampleRate = ctx.sampleRate;
+            const length = sampleRate * 4; // 4 seconds
+            const buffer = ctx.createBuffer(1, length, sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < length; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            noiseBuffer = buffer;
+        }
+        return noiseBuffer;
+    }
+
+    function playPlayerLaser() {
+        const ctx = ensureAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.12);
+    }
+
+    function playEnemyLaser() {
+        const ctx = ensureAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(350, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.15);
+    }
+
+    function playExplosion(size) {
+        const ctx = ensureAudioContext();
+        const buffer = getNoiseBuffer(ctx);
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+
+        const gain = ctx.createGain();
+
+        let duration, startFreq, volume;
+        switch (size) {
+            case 'small':
+                duration = 0.1;
+                startFreq = 800;
+                volume = 0.2;
+                break;
+            case 'medium':
+                duration = 0.2;
+                startFreq = 600;
+                volume = 0.35;
+                break;
+            case 'large':
+            default:
+                duration = 0.4;
+                startFreq = 400;
+                volume = 0.5;
+                break;
+        }
+
+        filter.frequency.setValueAtTime(startFreq, ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + duration);
+        gain.gain.setValueAtTime(volume, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+        source.connect(filter).connect(gain).connect(ctx.destination);
+        source.start(ctx.currentTime);
+        source.stop(ctx.currentTime + duration);
+    }
+
+    return { playPlayerLaser, playEnemyLaser, playExplosion };
+})();
+
 // === PLAYER ===
 const player = {
     x: W / 2,
     y: H - 50,
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 24,
     speed: 220, // pixels per second
     color: '#00e5ff',
+    hitCount: 0,
+    invulnTimer: 0,
+
+    getDamageColor() {
+        if (this.hitCount === 1) return '#ffea00';
+        if (this.hitCount === 2) return '#ff1744';
+        return '#00e5ff';
+    },
 
     update(dt) {
         if (keys['ArrowLeft'] || keys['KeyA']) {
@@ -54,15 +200,21 @@ const player = {
         // Clamp to canvas bounds
         this.x = Math.max(this.width / 2, Math.min(W - this.width / 2, this.x));
 
-        // Shooting — fire on space press (auto-fire while held, with cooldown)
-        if (keys['Space']) {
+        // Shooting — fire on space press or while touch is active (auto-fire, with cooldown)
+        if (keys['Space'] || touchActive) {
             if (!this.fireTimer || this.fireTimer <= 0) {
                 lasers.push(createPlayerLaser(this.x, this.y - this.height / 2));
+                soundManager.playPlayerLaser();
                 this.fireTimer = 0.15; // 150ms cooldown
             }
         }
         if (this.fireTimer !== undefined) {
             this.fireTimer -= dt;
+        }
+
+        // Invulnerability countdown
+        if (this.invulnTimer > 0) {
+            this.invulnTimer -= dt;
         }
     },
 
@@ -70,36 +222,92 @@ const player = {
         ctx.save();
         ctx.translate(this.x, this.y);
 
-        // Ship body — main triangle
-        ctx.fillStyle = this.color;
-        ctx.shadowColor = this.color;
-        ctx.shadowBlur = 12;
+        const hw = this.width;   // half-width of the ship
+        const hh = this.height;  // half-height of the ship
+
+        // Invulnerability — dim ship instead of hiding it
+        if (this.invulnTimer > 0 && Math.floor(this.invulnTimer * 10) % 2 === 0) {
+            ctx.globalAlpha = 0.3;
+        } else if (this.invulnTimer > 0) {
+            ctx.globalAlpha = 0.7;
+        }
+
+        // --- Main body — compact angular delta fuselage ---
+        ctx.fillStyle = this.getDamageColor();
+        ctx.shadowColor = this.getDamageColor();
+        ctx.shadowBlur = 14;
         ctx.beginPath();
-        ctx.moveTo(0, -this.height / 2);       // nose
-        ctx.lineTo(-this.width / 2, this.height / 2); // left wing tip
-        ctx.lineTo(-this.width / 4, this.height / 4); // left inner notch
-        ctx.lineTo(this.width / 4, this.height / 4);  // right inner notch
-        ctx.lineTo(this.width / 2, this.height / 2);  // right wing tip
+        ctx.moveTo(0, -hh);                        // pointed nose (top)
+        ctx.lineTo(-hw * 0.55, hh * 0.25);         // left wing tip
+        ctx.lineTo(-hw * 0.35, hh * 0.45);         // left rear corner
+        ctx.lineTo(0, hh * 0.35);                  // center tail notch
+        ctx.lineTo(hw * 0.35, hh * 0.45);          // right rear corner
+        ctx.lineTo(hw * 0.55, hh * 0.25);          // right wing tip
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-        // Cockpit highlight
+        // --- Body center-line ridge ---
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(0, -this.height / 4);
-        ctx.lineTo(-4, this.height / 8);
-        ctx.lineTo(4, this.height / 8);
+        ctx.moveTo(0, -hh + 3);
+        ctx.lineTo(0, hh * 0.4);
+        ctx.stroke();
+
+        // --- Cockpit — angular diamond canopy near nose ---
+        ctx.fillStyle = '#0a1628';
+        ctx.beginPath();
+        ctx.moveTo(0, -hh * 0.7);                  // front tip
+        ctx.lineTo(-hw * 0.15, -hh * 0.35);        // left corner
+        ctx.lineTo(0, -hh * 0.2);                  // back point
+        ctx.lineTo(hw * 0.15, -hh * 0.35);         // right corner
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
 
-        // Engine glow
+        // Cockpit highlight — sharp white line on left edge
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-hw * 0.07, -hh * 0.55);
+        ctx.lineTo(-hw * 0.1, -hh * 0.38);
+        ctx.stroke();
+
+        // --- Engine glow (dual angular exhaust at rear) ---
+        const enginePulse = 3 + Math.random() * 5;
+        ctx.shadowBlur = 0;
         ctx.fillStyle = '#ff9100';
         ctx.shadowColor = '#ff9100';
-        ctx.shadowBlur = 8;
-        ctx.fillRect(-6, this.height / 4, 4, 4 + Math.random() * 4);
-        ctx.fillRect(2, this.height / 4, 4, 4 + Math.random() * 4);
+        ctx.shadowBlur = 10;
 
+        // Left engine — angular flame shape
+        ctx.beginPath();
+        ctx.moveTo(-hw * 0.12, hh * 0.4);
+        ctx.lineTo(-hw * 0.16, hh * 0.45 + enginePulse);
+        ctx.lineTo(-hw * 0.04, hh * 0.45 + enginePulse * 0.3);
+        ctx.closePath();
+        ctx.fill();
+
+        // Right engine
+        ctx.beginPath();
+        ctx.moveTo(hw * 0.12, hh * 0.4);
+        ctx.lineTo(hw * 0.16, hh * 0.45 + enginePulse);
+        ctx.lineTo(hw * 0.04, hh * 0.45 + enginePulse * 0.3);
+        ctx.closePath();
+        ctx.fill();
+
+        // Engine cores — bright yellow-white rectangles
+        ctx.fillStyle = '#ffea00';
+        ctx.fillRect(-hw * 0.1, hh * 0.4, 3, enginePulse * 0.5);
+        ctx.fillRect(hw * 0.07, hh * 0.4, 3, enginePulse * 0.5);
+
+        ctx.globalAlpha = 1; // reset alpha
         ctx.restore();
     }
 };
@@ -228,6 +436,7 @@ function createEnemy(x, y, typeIndex) {
             this.shootTimer -= dt;
             if (this.shootTimer <= 0 && this.y > 0 && this.y < H * 0.7) {
                 lasers.push(createEnemyLaser(this.x, this.y + this.height / 2));
+                soundManager.playEnemyLaser();
                 this.shootTimer = 3 + Math.random() * 4 - wave * 0.15; // faster shooting in later waves
                 if (this.shootTimer < 1.0) this.shootTimer = 1.0;
             }
@@ -500,22 +709,25 @@ function updateHUD() {
     scoreValue.textContent = score;
     waveValue.textContent = wave;
     livesDisplay.innerHTML = '';
-    for (let i = 0; i < lives; i++) {
+    // Draw 3 damage indicator dots — colored by hitCount
+    const dotColors = ['#00e5ff', '#ffea00', '#ff1744'];
+    for (let i = 0; i < 3; i++) {
         const icon = document.createElement('canvas');
         icon.width = 20;
         icon.height = 20;
         const ictx = icon.getContext('2d');
-        ictx.fillStyle = '#00e5ff';
-        ictx.shadowColor = '#00e5ff';
-        ictx.shadowBlur = 4;
+        if (i < player.hitCount) {
+            // This dot is damaged — dim gray
+            ictx.fillStyle = '#555';
+            ictx.shadowBlur = 0;
+        } else {
+            // This dot is still intact — show next color in sequence
+            ictx.fillStyle = dotColors[player.hitCount];
+            ictx.shadowColor = dotColors[player.hitCount];
+            ictx.shadowBlur = 4;
+        }
         ictx.beginPath();
-        ictx.moveTo(10, 2);
-        ictx.lineTo(2, 18);
-        ictx.lineTo(6, 14);
-        ictx.lineTo(10, 16);
-        ictx.lineTo(14, 14);
-        ictx.lineTo(18, 18);
-        ictx.closePath();
+        ictx.arc(10, 10, 7, 0, Math.PI * 2);
         ictx.fill();
         livesDisplay.appendChild(icon);
     }
@@ -563,6 +775,13 @@ function gameLoop(timestamp) {
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, W, H);
 
+    // Screen flash on hit (white overlay that fades out)
+    if (screenFlashTimer > 0) {
+        const alpha = Math.min(0.4, screenFlashTimer * 3);
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.fillRect(0, 0, W, H);
+    }
+
     // Always draw stars
     updateStars(dt);
     drawStars();
@@ -589,14 +808,21 @@ function gameLoop(timestamp) {
         // Update enemies
         for (let i = enemies.length - 1; i >= 0; i--) {
             enemies[i].update(dt);
-            if (enemies[i].isOffScreen()) {
-                // Enemy reached bottom — lose a life
-                lives--;
+           if (enemies[i].isOffScreen()) {
+                // Enemy reached bottom — take damage
+                if (player.invulnTimer <= 0) {
+                    player.hitCount++;
+                    player.invulnTimer = 2;
+                    screenFlashTimer = 0.15;
+                }
                 createExplosion(enemies[i].x, H - 20, '#ff9100', 8);
+                soundManager.playExplosion('medium');
                 enemies.splice(i, 1);
                 waveEnemiesRemaining--;
 
-                if (lives <= 0) {
+                if (player.hitCount >= 3) {
+                    createExplosion(player.x, player.y, '#00e5ff', 20);
+                    soundManager.playExplosion('large');
                     endGame();
                 }
             }
@@ -622,7 +848,8 @@ function gameLoop(timestamp) {
                     if (enemy.hp <= 0) {
                         score += enemy.points;
                         waveEnemiesRemaining--;
-                        createExplosion(enemy.x, enemy.y, enemy.color, 15);
+                         createExplosion(enemy.x, enemy.y, enemy.color, 15);
+                        soundManager.playExplosion('large');
                         enemies.splice(j, 1);
 
                         // Check if wave is cleared
@@ -630,8 +857,9 @@ function gameLoop(timestamp) {
                             startWave(wave + 1);
                         }
                     } else {
-                        // Hit but not dead — small spark
+                         // Hit but not dead — small spark
                         createExplosion(laser.x, laser.y, '#ffffff', 4);
+                        soundManager.playExplosion('small');
                     }
                     break;
                 }
@@ -644,11 +872,17 @@ function gameLoop(timestamp) {
             if (laser.isPlayer) continue;
 
             if (aabbCollision(laser, player)) {
-                lives--;
-                createExplosion(player.x, player.y, '#00e5ff', 12);
+                if (player.invulnTimer > 0) continue;
+                player.hitCount++;
+                player.invulnTimer = 2;
+                screenFlashTimer = 0.15;
+                createExplosion(player.x, player.y, '#ffffff', 6);
+                soundManager.playExplosion('small');
                 lasers.splice(i, 1);
 
-                if (lives <= 0) {
+                if (player.hitCount >= 3) {
+                    createExplosion(player.x, player.y, '#00e5ff', 20);
+                    soundManager.playExplosion('large');
                     endGame();
                 }
             }
@@ -657,13 +891,20 @@ function gameLoop(timestamp) {
         // Enemies vs player (direct collision)
         for (let i = enemies.length - 1; i >= 0; i--) {
             if (aabbCollision(enemies[i], player)) {
-                lives--;
-                createExplosion(player.x, player.y, '#00e5ff', 12);
+                if (player.invulnTimer > 0) continue;
+                player.hitCount++;
+                player.invulnTimer = 2;
+                screenFlashTimer = 0.15;
+                createExplosion(player.x, player.y, '#ffffff', 6);
+                soundManager.playExplosion('small');
                 createExplosion(enemies[i].x, enemies[i].y, enemies[i].color, 15);
+                soundManager.playExplosion('large');
                 waveEnemiesRemaining--;
                 enemies.splice(i, 1);
 
-                if (lives <= 0) {
+                if (player.hitCount >= 3) {
+                    createExplosion(player.x, player.y, '#00e5ff', 20);
+                    soundManager.playExplosion('large');
                     endGame();
                 }
             }
@@ -692,6 +933,11 @@ function gameLoop(timestamp) {
         player.draw();
         drawParticles();
     }
+
+    // Decrement screen flash timer
+    if (screenFlashTimer > 0) {
+        screenFlashTimer -= dt;
+    }
 }
 
 function endGame() {
@@ -714,10 +960,26 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
+// Tap to start / restart on overlay screens (works for both mouse and touch)
+startScreen.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (gameState === 'START') {
+        startGame();
+    }
+});
+
+gameoverScreen.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (gameState === 'GAME_OVER') {
+        resetGame();
+    }
+});
+
 function startGame() {
     score = 0;
     wave = 1;
-    lives = 3;
+    player.hitCount = 0;
+    player.invulnTimer = 2;
     player.x = W / 2;
     lasers.length = 0;
     enemies.length = 0;
@@ -730,7 +992,8 @@ function startGame() {
 function resetGame() {
     score = 0;
     wave = 1;
-    lives = 3;
+    player.hitCount = 0;
+    player.invulnTimer = 2;
     player.x = W / 2;
     lasers.length = 0;
     enemies.length = 0;
@@ -738,6 +1001,16 @@ function resetGame() {
     gameState = 'PLAYING';
     startWave(1);
     showGameScreen();
+}
+
+// === MOBILE UI DETECTION ===
+if (isMobile) {
+    document.querySelector('.controls-info').style.display = 'none';
+    document.querySelector('.mobile-controls-info').style.display = 'block';
+    document.getElementById('start-prompt').style.display = 'none';
+    document.getElementById('mobile-start-prompt').style.display = 'block';
+    document.getElementById('restart-prompt').style.display = 'none';
+    document.getElementById('mobile-restart-prompt').style.display = 'block';
 }
 
 // === INIT ===

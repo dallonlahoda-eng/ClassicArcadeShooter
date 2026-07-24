@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GALACTIC ASSAULT — Arcade Space Shooter</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +21,11 @@
                 <p><span class="key">&larr; &rarr;</span> MOVE</p>
                 <p><span class="key">SPACE</span> FIRE</p>
             </div>
+            <div class="mobile-controls-info" style="display: none;">
+                <p>TOUCH &amp; DRAG TO MOVE &amp; FIRE</p>
+            </div>
             <p id="start-prompt" class="prompt">PRESS SPACE TO START</p>
+            <p id="mobile-start-prompt" class="prompt" style="display: none; margin-top: 8px;">TAP TO START</p>
         </div>
 
         <!-- Game Over Overlay -->
@@ -30,6 +34,7 @@
             <p class="final-score">SCORE: <span id="final-score-value">0</span></p>
             <p class="high-score">HIGH SCORE: <span id="high-score-value">0</span></p>
             <p id="restart-prompt" class="prompt">PRESS SPACE TO RETRY</p>
+            <p id="mobile-restart-prompt" class="prompt" style="display: none; margin-top: 8px;">TAP TO RETRY</p>
         </div>
 
         <!-- HUD -->
